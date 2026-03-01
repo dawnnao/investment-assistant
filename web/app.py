@@ -11,7 +11,7 @@ from datetime import datetime
 import json
 import hashlib
 
-from core.openai_client import OpenAIClient
+from core.openai_client import OpenAIClient, GeminiClient, OpenRouterClient
 from core.storage import Storage
 from core.interview import InterviewManager
 from core.environment import EnvironmentCollector
@@ -80,9 +80,16 @@ preference_learner = None
 def get_client():
     global client, interview_manager, env_collector, research_engine, preference_learner
     if client is None:
-        api_key = storage.get_api_key()
+        provider = storage.get_llm_provider()
+        api_key = storage.get_api_key(provider)
+        model = storage.get_llm_model(provider)
         if api_key:
-            client = OpenAIClient(api_key)
+            if provider == "openrouter":
+                client = OpenRouterClient(api_key=api_key, model=model)
+            elif provider == "gemini":
+                client = GeminiClient(api_key=api_key, model=model)
+            else:
+                client = OpenAIClient(api_key=api_key, model=model)
             interview_manager = InterviewManager(client, storage)
             env_collector = EnvironmentCollector(client, storage)
             research_engine = ResearchEngine(client, storage)

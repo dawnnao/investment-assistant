@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.openai_client import OpenAIClient
+from core.openai_client import OpenAIClient, GeminiClient, OpenRouterClient
 from core.storage import Storage
 from core.environment import EnvironmentCollector
 from core.research import ResearchEngine
@@ -35,11 +35,18 @@ def main():
     time_range_days = int(os.getenv("IA_DAYS", "7"))
 
     storage = Storage()
-    api_key = storage.get_api_key() or os.getenv("OPENAI_API_KEY")
+    provider = storage.get_llm_provider()
+    api_key = storage.get_api_key(provider)
     if not api_key:
-        raise SystemExit("Missing OPENAI_API_KEY")
+        raise SystemExit("Missing OPENAI_API_KEY or GEMINI_API_KEY")
 
-    client = OpenAIClient(api_key=api_key, model=os.getenv("IA_MODEL", "gpt-5.2"))
+    model = os.getenv("IA_MODEL") or storage.get_llm_model(provider)
+    if provider == "openrouter":
+        client = OpenRouterClient(api_key=api_key, model=model)
+    elif provider == "gemini":
+        client = GeminiClient(api_key=api_key, model=model)
+    else:
+        client = OpenAIClient(api_key=api_key, model=model)
     env = EnvironmentCollector(client, storage)
     research = ResearchEngine(client, storage)
 

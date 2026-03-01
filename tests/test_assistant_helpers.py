@@ -12,6 +12,7 @@ def _make_assistant():
     """Create an InvestmentAssistant with fully mocked dependencies."""
     with patch("assistant.Storage") as MockStorage, \
          patch("assistant.OpenAIClient") as MockClient, \
+         patch("assistant.GeminiClient") as MockGeminiClient, \
          patch("assistant.InterviewManager"), \
          patch("assistant.EnvironmentCollector"), \
          patch("assistant.ResearchEngine"), \
@@ -19,11 +20,14 @@ def _make_assistant():
 
         mock_storage = MagicMock()
         mock_storage.get_api_key.return_value = "sk-test"
+        mock_storage.get_llm_provider.return_value = "openai"
+        mock_storage.get_llm_model.return_value = "gpt-5.2"
         MockStorage.return_value = mock_storage
 
         mock_client = MagicMock()
         mock_client.model = "gpt-5.2"
         MockClient.return_value = mock_client
+        MockGeminiClient.return_value = mock_client
 
         MockDisplay.return_value = MagicMock()
 

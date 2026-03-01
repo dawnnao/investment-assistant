@@ -37,20 +37,59 @@ class Storage:
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
-    def get_api_key(self) -> Optional[str]:
+    def get_api_key(self, provider: Optional[str] = None) -> Optional[str]:
         """获取 API Key（OpenAI 优先，兼容旧版 Gemini 配置）"""
         config = self.get_config()
+        if provider == "openai":
+            return config.get("openai_api_key") or os.getenv("OPENAI_API_KEY")
+        if provider == "gemini":
+            return config.get("gemini_api_key") or os.getenv("GEMINI_API_KEY")
+        if provider == "openrouter":
+            return config.get("openrouter_api_key") or os.getenv("OPENROUTER_API_KEY")
         return (config.get("openai_api_key")
                 or os.getenv("OPENAI_API_KEY")
                 or config.get("gemini_api_key")
-                or os.getenv("GEMINI_API_KEY"))
+                or os.getenv("GEMINI_API_KEY")
+                or config.get("openrouter_api_key")
+                or os.getenv("OPENROUTER_API_KEY"))
 
-    def set_api_key(self, api_key: str):
-        """设置 API Key（写入 openai_api_key，清理旧版 key）"""
+    def set_api_key(self, api_key: str, provider: str = "openai"):
+        """设置 API Key"""
         config = self.get_config()
-        config["openai_api_key"] = api_key
-        config.pop("gemini_api_key", None)
+        key_field = {
+            "openai": "openai_api_key",
+            "gemini": "gemini_api_key",
+            "openrouter": "openrouter_api_key",
+        }.get(provider, "openai_api_key")
+        config[key_field] = api_key
         self.save_config(config)
+
+    def get_llm_provider(self) -> str:
+        config = self.get_config()
+        provider = (config.get("llm_provider") or os.getenv("LLM_PROVIDER") or "").lower()
+        if provider in ("openai", "gemini", "openrouter"):
+            return provider
+        if config.get("openrouter_api_key") or os.getenv("OPENROUTER_API_KEY"):
+            return "openrouter"
+        if config.get("openai_api_key") or os.getenv("OPENAI_API_KEY"):
+            return "openai"
+        if config.get("gemini_api_key") or os.getenv("GEMINI_API_KEY"):
+            return "gemini"
+        return "openai"
+
+    def get_llm_model(self, provider: str) -> str:
+        config = self.get_config()
+        if provider == "gemini":
+            return (config.get("gemini_model")
+                    or os.getenv("GEMINI_MODEL")
+                    or "gemini-2.5-flash")
+        if provider == "openrouter":
+            return (config.get("openrouter_model")
+                    or os.getenv("OPENROUTER_MODEL")
+                    or "google/gemini-2.5-flash")
+        return (config.get("openai_model")
+                or os.getenv("OPENAI_MODEL")
+                or "gpt-5.2")
 
     # ==================== 总体 Playbook ====================
 

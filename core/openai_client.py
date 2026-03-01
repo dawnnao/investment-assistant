@@ -17,6 +17,7 @@ import re
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+import requests
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Optional, List, Dict, Any, Tuple
@@ -298,6 +299,92 @@ class OpenAIClient:
         result = uniq[:20]
         result.insert(0, metadata)
         return result
+
+    @property
+    def model_flash(self) -> str:
+        return self.model
+
+
+class OpenRouterClient(OpenAIClient):
+    """OpenRouter API 客户端（兼容 OpenAI 格式，支持多种模型）"""
+
+    def __init__(self, api_key: Optional[str] = None, model: str = "google/gemini-2.5-flash"):
+        self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        if not self.api_key:
+            raise ValueError("请设置 OPENROUTER_API_KEY 环境变量或在 config.json 中配置 openrouter_api_key")
+        self.model = model
+        base_url = os.getenv("OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1")
+        self.client = OpenAI(api_key=self.api_key, base_url=base_url)
+
+
+class GeminiClient(OpenAIClient):
+    """Gemini API 客户端（默认使用 gemini-2.5-flash）"""
+
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-flash"):
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        if not self.api_key:
+            raise ValueError("请设置 GEMINI_API_KEY 环境变量或在 config.json 中配置 gemini_api_key")
+        self.model = model
+        self.base_url = os.getenv("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
+
+    def _build_contents(self, prompt: str, history: Optional[List[Dict]] = None) -> List[Dict[str, Any]]:
+        contents: List[Dict[str, Any]] = []
+        if history:
+            for msg in history:
+                role = msg.get("role")
+                if role in ("assistant", "model"):
+                    role = "model"
+                else:
+                    role = "user"
+                contents.append({"role": role, "parts": [{"text": msg.get("content", "")}]})
+        contents.append({"role": "user", "parts": [{"text": prompt}]})
+        return contents
+
+    def _extract_text(self, data: Dict[str, Any]) -> str:
+        candidates = data.get("candidates") or []
+        for cand in candidates:
+            content = cand.get("content") or {}
+            parts = content.get("parts") or []
+            texts = [p.get("text") for p in parts if p.get("text")]
+            if texts:
+                return "\n".join(texts)
+        return ""
+
+    def _generate(self, contents: List[Dict[str, Any]], system_prompt: Optional[str] = None) -> str:
+        payload: Dict[str, Any] = {"contents": contents}
+        if system_prompt:
+            payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+        resp = requests.post(
+            f"{self.base_url}/models/{self.model}:generateContent",
+            params={"key": self.api_key},
+            json=payload,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        return self._extract_text(resp.json())
+
+    def chat(self, prompt: str, history: Optional[List[Dict]] = None) -> str:
+        contents = self._build_contents(prompt, history)
+        return self._generate(contents)
+
+    def chat_with_system(self, system_prompt: str, user_message: str,
+                         history: Optional[List[Dict]] = None) -> str:
+        contents = self._build_contents(user_message, history)
+        return self._generate(contents, system_prompt=system_prompt)
+
+    def search(self, query: str, time_range_days: int = 7) -> str:
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=time_range_days)
+        return (
+            f"[search disabled] 该版本使用 Gemini({self.model})，未接入 Google grounding 搜索。\n"
+            f"请手动提供资料或上传文件。\n\n"
+            f"query={query}\n"
+            f"range={start_date.strftime('%Y-%m-%d')}..{end_date.strftime('%Y-%m-%d')}\n"
+        )
+
+    @property
+    def model_pro(self) -> str:
+        return self.model
 
     @property
     def model_flash(self) -> str:

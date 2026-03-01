@@ -7,7 +7,7 @@ import sys
 import re
 from typing import Optional, Tuple, Dict, List
 
-from core.openai_client import OpenAIClient
+from core.openai_client import OpenAIClient, GeminiClient, OpenRouterClient
 from core.storage import Storage
 from core.interview import InterviewManager
 from core.environment import EnvironmentCollector
@@ -22,16 +22,22 @@ class InvestmentAssistant:
         self.display = Display()
         self.storage = Storage()
 
-        # 获取 API Key
-        api_key = self.storage.get_api_key()
+        provider = self.storage.get_llm_provider()
+        api_key = self.storage.get_api_key(provider)
         if not api_key:
-            self._setup_api_key()
-            api_key = self.storage.get_api_key()
+            self._setup_api_key(provider)
+            api_key = self.storage.get_api_key(provider)
 
         try:
-            self.client = OpenAIClient(api_key)
+            model = self.storage.get_llm_model(provider)
+            if provider == "openrouter":
+                self.client = OpenRouterClient(api_key, model=model)
+            elif provider == "gemini":
+                self.client = GeminiClient(api_key, model=model)
+            else:
+                self.client = OpenAIClient(api_key, model=model)
         except Exception as e:
-            self.display.print_error(f"初始化 OpenAI 客户端失败: {e}")
+            self.display.print_error(f"初始化 LLM 客户端失败: {e}")
             sys.exit(1)
 
         self.interview = InterviewManager(self.client, self.storage)
@@ -42,13 +48,19 @@ class InvestmentAssistant:
         self.current_mode = None  # None, "portfolio_interview", "stock_interview", "environment"
         self.current_stock = None
 
-    def _setup_api_key(self):
+    def _setup_api_key(self, provider: str = "openai"):
         """设置 API Key"""
-        self.display.print_info("首次使用，请设置 OpenAI API Key")
-        self.display.print("请在环境变量 OPENAI_API_KEY 或 ~/.investment-assistant/config.json 的 openai_api_key 中配置")
-        api_key = self.display.input("请输入 OpenAI API Key: ")
+        provider_info = {
+            "gemini": ("Gemini", "GEMINI_API_KEY", "gemini_api_key"),
+            "openrouter": ("OpenRouter", "OPENROUTER_API_KEY", "openrouter_api_key"),
+            "openai": ("OpenAI", "OPENAI_API_KEY", "openai_api_key"),
+        }.get(provider, ("OpenAI", "OPENAI_API_KEY", "openai_api_key"))
+        name, env_var, config_key = provider_info
+        self.display.print_info(f"首次使用，请设置 {name} API Key")
+        self.display.print(f"请在环境变量 {env_var} 或 ~/.investment-assistant/config.json 的 {config_key} 中配置")
+        api_key = self.display.input(f"请输入 {name} API Key: ")
         if api_key.strip():
-            self.storage.set_api_key(api_key.strip())
+            self.storage.set_api_key(api_key.strip(), provider=provider)
             self.display.print_success("API Key 已保存")
         else:
             self.display.print_error("API Key 不能为空")
